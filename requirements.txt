@@ -1,0 +1,10 @@
+anthropic>=0.40.0
+trafilatura>=1.8.0
+duckduckgo-search>=6.0.0
+google-cloud-speech>=2.0.0
+google-cloud-texttospeech>=2.0.0
+sounddevice>=0.4.6
+soundfile>=0.12.1
+python-dotenv>=1.0.0
+streamlit>=1.30.0
+pyvis>=0.3.2
