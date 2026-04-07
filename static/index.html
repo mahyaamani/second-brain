@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Second Brain — Voice Agent</title>
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.9.1/dist/livekit-client.umd.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f0f23;
+      color: #e0e0e0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .container {
+      text-align: center;
+      width: 100%;
+      max-width: 480px;
+      padding: 2rem;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 0.25rem;
+      color: #fff;
+    }
+
+    .subtitle {
+      font-size: 0.9rem;
+      color: #888;
+      margin-bottom: 2rem;
+    }
+
+    #status {
+      font-size: 0.85rem;
+      color: #888;
+      margin-bottom: 1.5rem;
+      min-height: 1.2em;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 1rem 2rem;
+      border: none;
+      border-radius: 50px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    #connectBtn {
+      background: #6366f1;
+      color: #fff;
+      box-shadow: 0 0 30px rgba(99, 102, 241, 0.3);
+    }
+
+    #connectBtn:hover:not(:disabled) {
+      background: #818cf8;
+      box-shadow: 0 0 40px rgba(99, 102, 241, 0.5);
+    }
+
+    .controls { display: none; gap: 1rem; justify-content: center; margin-bottom: 1.5rem; }
+    .controls.active { display: flex; }
+
+    #muteBtn { background: #22c55e; color: #fff; }
+    #muteBtn.muted { background: #6b7280; }
+    #endBtn { background: #ef4444; color: #fff; }
+    #endBtn:hover { background: #f87171; }
+
+    /* Pulse animation */
+    .pulse-ring {
+      display: none;
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      margin: 0 auto 2rem;
+      position: relative;
+    }
+
+    .pulse-ring.active { display: block; }
+
+    .pulse-ring::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: rgba(99, 102, 241, 0.15);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .pulse-ring .icon {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.5rem;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 0.4; }
+      50% { transform: scale(1.3); opacity: 0.1; }
+    }
+
+    .error { color: #ef4444; font-size: 0.85rem; margin-top: 1rem; }
+
+    /* Transcript panel */
+    #transcript {
+      display: none;
+      text-align: left;
+      max-height: 300px;
+      overflow-y: auto;
+      border: 1px solid #2a2a4a;
+      border-radius: 12px;
+      padding: 1rem;
+      margin-top: 1.5rem;
+      background: #161630;
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+
+    #transcript.active { display: block; }
+
+    #transcript .entry { margin-bottom: 0.5rem; }
+    #transcript .entry .role {
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    #transcript .entry.user .role { color: #818cf8; }
+    #transcript .entry.agent .role { color: #22c55e; }
+    #transcript .entry .text { color: #ccc; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Second Brain</h1>
+    <p class="subtitle">Your AI interviewer — tell it about your life</p>
+
+    <div id="pulseRing" class="pulse-ring">
+      <div class="icon">🎙️</div>
+    </div>
+
+    <p id="status"></p>
+
+    <button id="connectBtn" class="btn" onclick="handleConnect()">
+      Start Conversation
+    </button>
+
+    <div id="controls" class="controls">
+      <button id="muteBtn" class="btn" onclick="handleToggleMic()">Mute</button>
+      <button id="endBtn" class="btn" onclick="handleDisconnect()">End</button>
+    </div>
+
+    <p id="error" class="error"></p>
+
+    <div id="transcript"></div>
+  </div>
+
+  <script>
+    const { Room, RoomEvent, Track, ConnectionState } = LivekitClient;
+
+    let room = null;
+    let micEnabled = true;
+
+    const statusEl = document.getElementById('status');
+    const connectBtn = document.getElementById('connectBtn');
+    const controls = document.getElementById('controls');
+    const muteBtn = document.getElementById('muteBtn');
+    const pulseRing = document.getElementById('pulseRing');
+    const errorEl = document.getElementById('error');
+    const transcriptEl = document.getElementById('transcript');
+
+    function setStatus(msg) { statusEl.textContent = msg; }
+    function setError(msg) { errorEl.textContent = msg; }
+    function clearError() { errorEl.textContent = ''; }
+
+    function addTranscriptEntry(role, text) {
+      const entry = document.createElement('div');
+      entry.className = `entry ${role}`;
+      entry.innerHTML = `<span class="role">${role === 'user' ? 'You' : 'Agent'}:</span> <span class="text">${escapeHtml(text)}</span>`;
+      transcriptEl.appendChild(entry);
+      transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    }
+
+    function escapeHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    function showConnected() {
+      connectBtn.style.display = 'none';
+      controls.classList.add('active');
+      pulseRing.classList.add('active');
+      transcriptEl.classList.add('active');
+      transcriptEl.innerHTML = '';
+    }
+
+    function showDisconnected() {
+      connectBtn.style.display = 'inline-block';
+      connectBtn.disabled = false;
+      connectBtn.textContent = 'Start Conversation';
+      controls.classList.remove('active');
+      pulseRing.classList.remove('active');
+      setStatus('');
+    }
+
+    async function handleConnect() {
+      clearError();
+      connectBtn.disabled = true;
+      connectBtn.textContent = 'Connecting...';
+      setStatus('Requesting token...');
+
+      try {
+        const resp = await fetch('/api/voice-token', { method: 'POST' });
+        if (!resp.ok) {
+          const data = await resp.json().catch(() => ({}));
+          throw new Error(data.error || `HTTP ${resp.status}`);
+        }
+
+        const { livekit_url, token } = await resp.json();
+        setStatus('Connecting to voice agent...');
+
+        room = new Room();
+
+        // Handle incoming agent audio
+        room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+          if (track.kind === Track.Kind.Audio) {
+            const audioEl = track.attach();
+            document.body.appendChild(audioEl);
+            setStatus('Agent connected — speak now!');
+          }
+        });
+
+        // Handle data channel: heartbeat + transcript
+        room.on(RoomEvent.DataReceived, (payload, participant, kind, topic) => {
+          if (topic !== 'client_actions') return;
+          try {
+            const data = JSON.parse(new TextDecoder().decode(payload));
+            if (data.type !== 'client_action') return;
+
+            if (data.action === 'heartbeat') {
+              console.log('Heartbeat from agent:', data.payload.agent_identity);
+              // Send ack for latency measurement
+              room.localParticipant.publishData(
+                new TextEncoder().encode(JSON.stringify({
+                  type: 'client_action',
+                  action: 'heartbeat_ack',
+                  payload: { timestamp: data.payload.timestamp }
+                })),
+                { reliable: true, topic: 'client_actions' }
+              );
+              return;
+            }
+
+            if (data.action === 'send_transcript') {
+              const { role, text } = data.payload;
+              addTranscriptEntry(role, text);
+              return;
+            }
+
+            console.log('Agent action:', data.action, data.payload);
+          } catch (e) {
+            console.warn('Failed to parse data channel message', e);
+          }
+        });
+
+        room.on(RoomEvent.Disconnected, () => {
+          showDisconnected();
+          setStatus('Call ended');
+        });
+
+        await room.connect(livekit_url, token);
+        await room.localParticipant.setMicrophoneEnabled(true);
+        micEnabled = true;
+
+        showConnected();
+        setStatus('Connected — waiting for agent...');
+
+      } catch (err) {
+        console.error('Connection failed:', err);
+        setError(err.message);
+        showDisconnected();
+      }
+    }
+
+    async function handleToggleMic() {
+      if (!room) return;
+      micEnabled = !micEnabled;
+      await room.localParticipant.setMicrophoneEnabled(micEnabled);
+      muteBtn.textContent = micEnabled ? 'Mute' : 'Unmute';
+      muteBtn.classList.toggle('muted', !micEnabled);
+    }
+
+    async function handleDisconnect() {
+      if (room) {
+        await room.disconnect();
+        room = null;
+      }
+      showDisconnected();
+      setStatus('Call ended');
+    }
+  </script>
+</body>
+</html>
