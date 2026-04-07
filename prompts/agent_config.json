@@ -1,0 +1,34 @@
+{
+  "greeting": "Hey! I have been trying to reach you about your cars extended warranty. Just kidding! I am actually here to learn all about you and help build your second brain. So, tell me, what is on your mind lately?",
+  "style": "Chatty",
+  "mode": "openai_concierge",
+  "model_settings": {
+    "tts": {
+      "model": "eleven_flash_v2_5",
+      "voice_id": "EXAVITQu4vr4xnSDxMaL",
+      "voice_style": "none",
+      "custom_api_key": "",
+      "custom_voice_id": "",
+      "voice_id_source": "library"
+    },
+    "audio": {
+      "ambient_volume": 0.8,
+      "ambient_enabled": "true",
+      "thinking_volume": 0.8,
+      "thinking_enabled": "true"
+    },
+    "session": {
+      "max_history_messages": 100,
+      "max_call_duration_minutes": 30
+    },
+    "realtime": {
+      "model": "gpt-realtime-2025-08-28",
+      "voice": "marin",
+      "vad_threshold": "0.85",
+      "use_external_tts": "false",
+      "semantic_eagerness": "auto",
+      "silence_duration_ms": "800",
+      "turn_detection_type": "server_vad"
+    }
+  }
+}
