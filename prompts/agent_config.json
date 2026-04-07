@@ -24,10 +24,10 @@
     "realtime": {
       "model": "gpt-realtime-2025-08-28",
       "voice": "marin",
-      "vad_threshold": "0.85",
+      "vad_threshold": 0.5,
       "use_external_tts": "false",
       "semantic_eagerness": "auto",
-      "silence_duration_ms": "800",
+      "silence_duration_ms": "1000",
       "turn_detection_type": "server_vad"
     }
   }
