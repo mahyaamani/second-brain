@@ -36,6 +36,12 @@ def voice_token():
     if not VOCAL_BRIDGE_API_KEY:
         return jsonify({"error": "VOCAL_BRIDGE_API_KEY not set"}), 500
 
+    # Inject current wiki index into the agent prompt before each call
+    try:
+        _update_prompt_with_wiki_index()
+    except Exception as e:
+        app.logger.warning("Failed to update prompt with wiki index: %s", e)
+
     try:
         resp = requests.post(
             f"{VOCAL_BRIDGE_URL}/api/v1/token",
@@ -56,6 +62,56 @@ def voice_token():
     except requests.exceptions.RequestException as e:
         app.logger.error("Token request failed: %s", e)
         return jsonify({"error": "Failed to get voice token"}), 502
+
+
+# Base prompt stored here so we can append wiki index dynamically
+BASE_PROMPT = None
+
+
+def _get_base_prompt():
+    """Fetch the base prompt once and cache it."""
+    global BASE_PROMPT
+    if BASE_PROMPT is not None:
+        return BASE_PROMPT
+    try:
+        resp = requests.get(
+            f"{VOCAL_BRIDGE_URL}/api/v1/agent",
+            headers={"X-API-Key": VOCAL_BRIDGE_API_KEY},
+            timeout=10,
+        )
+        if resp.ok:
+            prompt = resp.json().get("custom_prompt", "")
+            # Strip any previous wiki index appendage
+            marker = "\n\n--- CURRENT WIKI INDEX ---"
+            if marker in prompt:
+                prompt = prompt[:prompt.index(marker)]
+            BASE_PROMPT = prompt
+            return BASE_PROMPT
+    except Exception:
+        pass
+    return ""
+
+
+def _update_prompt_with_wiki_index():
+    """Append the current wiki page list to the agent prompt."""
+    base = _get_base_prompt()
+    if not base:
+        return
+
+    pages_raw = list_wiki_pages()
+    if pages_raw.startswith("The wiki is empty"):
+        wiki_section = "The wiki is currently empty. This is a new user — start by getting to know them."
+    else:
+        wiki_section = f"These pages already exist in the user's second brain:\n{pages_raw}\n\nYou already know things about this person. Reference this knowledge naturally. Use read_wiki_page to look up details from specific pages when relevant."
+
+    full_prompt = f"{base}\n\n--- CURRENT WIKI INDEX ---\n{wiki_section}"
+
+    requests.patch(
+        f"{VOCAL_BRIDGE_URL}/api/v1/agent",
+        headers={"X-API-Key": VOCAL_BRIDGE_API_KEY, "Content-Type": "application/json"},
+        json={"prompt": full_prompt},
+        timeout=10,
+    )
 
 
 # --- Second Brain tool endpoints (called by VocalBridge API tools) ---
