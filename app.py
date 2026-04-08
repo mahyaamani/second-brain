@@ -122,6 +122,30 @@ def tool_log_activity():
     return jsonify({"result": result})
 
 
+# --- UI read-only endpoints (no auth needed, read-only) ---
+
+@app.route("/api/wiki/pages")
+def ui_wiki_pages():
+    """List wiki pages for the UI (read-only, no auth)."""
+    raw = list_wiki_pages()
+    if raw.startswith("The wiki is empty"):
+        return jsonify({"pages": []})
+    pages = []
+    for line in raw.split("\n"):
+        line = line.strip().lstrip("- ")
+        if line and line != "Wiki pages:":
+            pages.append(line)
+    return jsonify({"pages": pages})
+
+
+@app.route("/api/wiki/page")
+def ui_wiki_page():
+    """Read a single wiki page for the UI (read-only, no auth)."""
+    title = request.args.get("title", "")
+    content = read_wiki_page(title)
+    return jsonify({"title": title, "content": content})
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5050))
     app.run(host="0.0.0.0", port=port, debug=True)

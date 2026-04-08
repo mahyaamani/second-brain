@@ -30,5 +30,6 @@
       "silence_duration_ms": "1000",
       "turn_detection_type": "server_vad"
     }
-  }
+  },
+  "api_tools_count": 6
 }
