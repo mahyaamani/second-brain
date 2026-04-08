@@ -2,20 +2,34 @@
 
 import os
 import requests
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-from config import VOCAL_BRIDGE_API_KEY, VOCAL_BRIDGE_URL, VOCAL_BRIDGE_AGENT_ID
+from tools.wiki import read_wiki_page, write_wiki_page, list_wiki_pages, log_activity
+from tools.web import fetch_article, search_web
+from config import VOCAL_BRIDGE_API_KEY, VOCAL_BRIDGE_URL, VOCAL_BRIDGE_AGENT_ID, TOOL_SECRET
 
 app = Flask(__name__, static_folder="static")
 
+
+def check_tool_auth():
+    """Verify the request carries our tool secret."""
+    token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    if token != TOOL_SECRET:
+        return jsonify({"error": "unauthorized"}), 401
+    return None
+
+
+# --- Static / UI ---
 
 @app.route("/")
 def index():
     return send_from_directory("static", "index.html")
 
+
+# --- VocalBridge token proxy ---
 
 @app.route("/api/voice-token", methods=["POST"])
 def voice_token():
@@ -42,6 +56,70 @@ def voice_token():
     except requests.exceptions.RequestException as e:
         app.logger.error("Token request failed: %s", e)
         return jsonify({"error": "Failed to get voice token"}), 502
+
+
+# --- Second Brain tool endpoints (called by VocalBridge API tools) ---
+
+@app.route("/tools/wiki/read", methods=["POST"])
+def tool_read_wiki():
+    auth_err = check_tool_auth()
+    if auth_err:
+        return auth_err
+    title = request.json.get("title", "")
+    result = read_wiki_page(title)
+    return jsonify({"result": result})
+
+
+@app.route("/tools/wiki/write", methods=["POST"])
+def tool_write_wiki():
+    auth_err = check_tool_auth()
+    if auth_err:
+        return auth_err
+    title = request.json.get("title", "")
+    content = request.json.get("content", "")
+    result = write_wiki_page(title, content)
+    log_activity(f"Voice agent wrote wiki page: {title}")
+    return jsonify({"result": result})
+
+
+@app.route("/tools/wiki/list", methods=["POST"])
+def tool_list_wiki():
+    auth_err = check_tool_auth()
+    if auth_err:
+        return auth_err
+    result = list_wiki_pages()
+    return jsonify({"result": result})
+
+
+@app.route("/tools/web/search", methods=["POST"])
+def tool_search_web():
+    auth_err = check_tool_auth()
+    if auth_err:
+        return auth_err
+    query = request.json.get("query", "")
+    num_results = request.json.get("num_results", 3)
+    result = search_web(query, num_results=num_results)
+    return jsonify({"result": result})
+
+
+@app.route("/tools/web/fetch", methods=["POST"])
+def tool_fetch_article():
+    auth_err = check_tool_auth()
+    if auth_err:
+        return auth_err
+    url = request.json.get("url", "")
+    result = fetch_article(url)
+    return jsonify({"result": result})
+
+
+@app.route("/tools/wiki/log", methods=["POST"])
+def tool_log_activity():
+    auth_err = check_tool_auth()
+    if auth_err:
+        return auth_err
+    message = request.json.get("message", "")
+    result = log_activity(message)
+    return jsonify({"result": result})
 
 
 if __name__ == "__main__":
