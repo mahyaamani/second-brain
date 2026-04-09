@@ -225,6 +225,28 @@
 
     .empty-state .icon { font-size: 2rem; margin-bottom: 0.5rem; }
 
+    /* Upload zone */
+    .upload-zone {
+      border-top: 1px solid #1e1e3a;
+      padding: 0.8rem 1.2rem;
+    }
+    .upload-label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.6rem 0.8rem;
+      border: 1px dashed #2a2a4a;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      color: #888;
+      transition: all 0.15s;
+    }
+    .upload-label:hover { border-color: #6366f1; color: #aaa; }
+    .upload-label.drag-over { border-color: #6366f1; background: rgba(99,102,241,0.1); color: #fff; }
+    #uploadInput { display: none; }
+    #uploadStatus { font-size: 0.75rem; margin-top: 0.4rem; color: #888; min-height: 1em; }
+
     /* New page notification */
     .page-item.new-page {
       animation: highlightNew 2s ease-out;
@@ -274,6 +296,14 @@
         <h2>Brain</h2>
         <span id="pageCount" class="count">0</span>
         <button class="refresh-btn" onclick="loadWikiPages()">Refresh</button>
+      </div>
+
+      <div class="upload-zone">
+        <label class="upload-label" id="uploadLabel" for="uploadInput">
+          <span>📎</span> Upload file to brain (txt, md, pdf, docx…)
+        </label>
+        <input type="file" id="uploadInput" accept=".txt,.md,.pdf,.docx,.csv,.rst">
+        <div id="uploadStatus"></div>
       </div>
 
       <div id="pageList" class="page-list">
@@ -528,6 +558,51 @@
       }
       showDisconnected();
       setStatus('Call ended');
+    }
+
+    // --- File upload ---
+    const uploadInput = document.getElementById('uploadInput');
+    const uploadLabel = document.getElementById('uploadLabel');
+    const uploadStatus = document.getElementById('uploadStatus');
+
+    uploadInput.addEventListener('change', () => {
+      if (uploadInput.files[0]) uploadFile(uploadInput.files[0]);
+    });
+
+    uploadLabel.addEventListener('dragover', e => {
+      e.preventDefault();
+      uploadLabel.classList.add('drag-over');
+    });
+    uploadLabel.addEventListener('dragleave', () => uploadLabel.classList.remove('drag-over'));
+    uploadLabel.addEventListener('drop', e => {
+      e.preventDefault();
+      uploadLabel.classList.remove('drag-over');
+      if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]);
+    });
+
+    async function uploadFile(file) {
+      uploadStatus.style.color = '#888';
+      uploadStatus.textContent = `Uploading ${file.name}…`;
+
+      const form = new FormData();
+      form.append('file', file);
+
+      try {
+        const resp = await fetch('/api/upload', { method: 'POST', body: form });
+        const data = await resp.json();
+        if (!resp.ok) {
+          uploadStatus.style.color = '#ef4444';
+          uploadStatus.textContent = data.error || 'Upload failed';
+        } else {
+          uploadStatus.style.color = '#22c55e';
+          uploadStatus.textContent = `Saved to ${data.title} (${data.chars.toLocaleString()} chars)`;
+          loadWikiPages();
+        }
+      } catch (e) {
+        uploadStatus.style.color = '#ef4444';
+        uploadStatus.textContent = 'Upload failed — server error';
+      }
+      uploadInput.value = '';
     }
 
     // Load pages on startup

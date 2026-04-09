@@ -9,6 +9,7 @@ load_dotenv(override=True)
 
 from tools.wiki import read_wiki_page, write_wiki_page, list_wiki_pages, log_activity
 from tools.web import fetch_article, search_web
+from tools.files import extract_text
 from config import VOCAL_BRIDGE_API_KEY, VOCAL_BRIDGE_URL, VOCAL_BRIDGE_AGENT_ID, TOOL_SECRET
 
 app = Flask(__name__, static_folder="static")
@@ -200,6 +201,44 @@ def ui_wiki_page():
     title = request.args.get("title", "")
     content = read_wiki_page(title)
     return jsonify({"title": title, "content": content})
+
+
+ALLOWED_EXTENSIONS = {"txt", "md", "pdf", "docx", "csv", "rst"}
+
+
+@app.route("/api/upload", methods=["POST"])
+def upload_file():
+    """Upload a file and save its text content to the wiki."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Empty filename"}), 400
+
+    ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        return jsonify({"error": f"Unsupported type .{ext}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}), 400
+
+    data = f.read()
+    if len(data) > 10 * 1024 * 1024:  # 10 MB cap
+        return jsonify({"error": "File too large (max 10 MB)"}), 413
+
+    try:
+        text = extract_text(f.filename, data)
+    except Exception as e:
+        return jsonify({"error": f"Could not extract text: {e}"}), 422
+
+    if not text.strip():
+        return jsonify({"error": "File appears to be empty or has no extractable text"}), 422
+
+    # Save to wiki under uploads/<stem>
+    stem = f.filename.rsplit(".", 1)[0] if "." in f.filename else f.filename
+    title = f"uploads/{stem}"
+    write_wiki_page(title, f"# {stem}\n\n{text}")
+    log_activity(f"Uploaded file: {f.filename} → {title}")
+
+    return jsonify({"title": title, "chars": len(text)})
 
 
 if __name__ == "__main__":
