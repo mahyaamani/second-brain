@@ -3,8 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Second Brain — Voice Agent</title>
-  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.9.1/dist/livekit-client.umd.js"></script>
+  <title>Second Brain — Chat</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -15,92 +14,116 @@
       min-height: 100vh;
     }
 
-    /* Two-panel layout */
-    .app {
-      display: flex;
-      height: 100vh;
-    }
+    .app { display: flex; height: 100vh; }
 
-    /* Left panel: voice */
-    .voice-panel {
+    /* Left: chat panel */
+    .chat-panel {
       flex: 1;
       display: flex;
       flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem;
-      border-right: 1px solid #1e1e3a;
       min-width: 0;
+      border-right: 1px solid #1e1e3a;
     }
 
-    h1 { font-size: 1.5rem; margin-bottom: 0.25rem; color: #fff; }
-    .subtitle { font-size: 0.9rem; color: #888; margin-bottom: 2rem; }
-    #status { font-size: 0.85rem; color: #888; margin-bottom: 1.5rem; min-height: 1.2em; }
-
-    .btn {
-      display: inline-block; padding: 0.8rem 1.8rem; border: none;
-      border-radius: 50px; font-size: 1rem; font-weight: 600;
-      cursor: pointer; transition: all 0.2s;
+    .chat-header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid #1e1e3a;
     }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .chat-header h1 { font-size: 1.2rem; color: #fff; }
+    .chat-header p { font-size: 0.8rem; color: #666; margin-top: 0.15rem; }
 
-    #connectBtn {
-      background: #6366f1; color: #fff;
-      box-shadow: 0 0 30px rgba(99, 102, 241, 0.3);
-    }
-    #connectBtn:hover:not(:disabled) {
-      background: #818cf8;
-      box-shadow: 0 0 40px rgba(99, 102, 241, 0.5);
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.8rem;
     }
 
-    .controls { display: none; gap: 1rem; justify-content: center; margin-bottom: 1.5rem; }
-    .controls.active { display: flex; }
-    #muteBtn { background: #22c55e; color: #fff; }
-    #muteBtn.muted { background: #6b7280; }
-    #endBtn { background: #ef4444; color: #fff; }
-    #endBtn:hover { background: #f87171; }
-
-    .pulse-ring {
-      display: none; width: 100px; height: 100px;
-      border-radius: 50%; margin: 0 auto 1.5rem; position: relative;
-    }
-    .pulse-ring.active { display: block; }
-    .pulse-ring::before {
-      content: ''; position: absolute; inset: 0; border-radius: 50%;
-      background: rgba(99, 102, 241, 0.15);
-      animation: pulse 2s ease-in-out infinite;
-    }
-    .pulse-ring .icon {
-      position: absolute; inset: 0; display: flex;
-      align-items: center; justify-content: center; font-size: 2rem;
-    }
-    @keyframes pulse {
-      0%, 100% { transform: scale(1); opacity: 0.4; }
-      50% { transform: scale(1.3); opacity: 0.1; }
+    .message {
+      max-width: 80%;
+      padding: 0.7rem 1rem;
+      border-radius: 12px;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
 
-    .error { color: #ef4444; font-size: 0.85rem; margin-top: 1rem; }
-
-    /* Transcript */
-    #transcript {
-      display: none; text-align: left; width: 100%; max-height: 250px;
-      overflow-y: auto; border: 1px solid #2a2a4a; border-radius: 12px;
-      padding: 1rem; margin-top: 1rem; background: #161630;
-      font-size: 0.82rem; line-height: 1.5;
+    .message.user {
+      align-self: flex-end;
+      background: #6366f1;
+      color: #fff;
+      border-bottom-right-radius: 4px;
     }
-    #transcript.active { display: block; }
-    #transcript .entry { margin-bottom: 0.4rem; }
-    #transcript .entry .role {
-      font-weight: 600; font-size: 0.7rem;
-      text-transform: uppercase; letter-spacing: 0.05em;
-    }
-    #transcript .entry.user .role { color: #818cf8; }
-    #transcript .entry.agent .role { color: #22c55e; }
-    #transcript .entry .text { color: #ccc; }
 
-    /* Right panel: brain */
+    .message.assistant {
+      align-self: flex-start;
+      background: #1a1a3a;
+      color: #ddd;
+      border-bottom-left-radius: 4px;
+    }
+
+    .message.thinking {
+      align-self: flex-start;
+      background: #161630;
+      color: #555;
+      font-style: italic;
+      font-size: 0.82rem;
+      border-bottom-left-radius: 4px;
+      animation: blink 1.2s ease-in-out infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .input-area {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid #1e1e3a;
+      display: flex;
+      gap: 0.6rem;
+      align-items: flex-end;
+    }
+
+    #msgInput {
+      flex: 1;
+      background: #161630;
+      border: 1px solid #2a2a4a;
+      border-radius: 10px;
+      padding: 0.7rem 1rem;
+      color: #e0e0e0;
+      font-size: 0.9rem;
+      resize: none;
+      min-height: 42px;
+      max-height: 150px;
+      outline: none;
+      font-family: inherit;
+      line-height: 1.4;
+    }
+    #msgInput:focus { border-color: #6366f1; }
+    #msgInput::placeholder { color: #444; }
+
+    #sendBtn {
+      background: #6366f1;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 0.7rem 1.2rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.2s;
+    }
+    #sendBtn:hover:not(:disabled) { background: #818cf8; }
+    #sendBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Right: brain panel */
     .brain-panel {
-      width: 380px;
+      width: 360px;
       display: flex;
       flex-direction: column;
       background: #12122a;
@@ -114,499 +137,406 @@
       align-items: center;
       gap: 0.5rem;
     }
-
-    .brain-header h2 {
-      font-size: 1rem;
-      color: #fff;
-      font-weight: 600;
-    }
-
+    .brain-header h2 { font-size: 1rem; color: #fff; font-weight: 600; }
     .brain-header .count {
-      background: #6366f1;
-      color: #fff;
-      font-size: 0.7rem;
-      padding: 0.15rem 0.5rem;
-      border-radius: 10px;
-      font-weight: 600;
+      background: #6366f1; color: #fff;
+      font-size: 0.7rem; padding: 0.15rem 0.5rem;
+      border-radius: 10px; font-weight: 600;
     }
-
     .brain-header .refresh-btn {
-      margin-left: auto;
-      background: none;
-      border: 1px solid #2a2a4a;
-      color: #888;
-      padding: 0.3rem 0.6rem;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 0.75rem;
+      margin-left: auto; background: none;
+      border: 1px solid #2a2a4a; color: #888;
+      padding: 0.3rem 0.6rem; border-radius: 6px;
+      cursor: pointer; font-size: 0.75rem;
     }
     .brain-header .refresh-btn:hover { color: #fff; border-color: #6366f1; }
 
-    .page-list {
-      flex: 1;
-      overflow-y: auto;
-      padding: 0.5rem 0;
-    }
+    .page-list { flex: 1; overflow-y: auto; padding: 0.5rem 0; }
 
     .page-item {
-      padding: 0.6rem 1.2rem;
-      cursor: pointer;
+      padding: 0.6rem 1.2rem; cursor: pointer;
       border-left: 3px solid transparent;
-      transition: all 0.15s;
-      font-size: 0.85rem;
+      transition: all 0.15s; font-size: 0.85rem;
     }
-    .page-item:hover {
-      background: #1a1a3a;
-      border-left-color: #6366f1;
-    }
-    .page-item.active {
-      background: #1e1e40;
-      border-left-color: #6366f1;
-    }
-    .page-item .page-category {
-      font-size: 0.7rem;
-      color: #666;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-    .page-item .page-title {
-      color: #ccc;
-    }
+    .page-item:hover { background: #1a1a3a; border-left-color: #6366f1; }
+    .page-item.active { background: #1e1e40; border-left-color: #6366f1; }
+    .page-item .page-category { font-size: 0.7rem; color: #666; text-transform: uppercase; letter-spacing: 0.05em; }
+    .page-item .page-title { color: #ccc; }
 
     .page-viewer {
       border-top: 1px solid #1e1e3a;
-      max-height: 50%;
-      overflow-y: auto;
-      padding: 1.2rem;
-      display: none;
+      max-height: 50%; overflow-y: auto;
+      padding: 1.2rem; display: none;
     }
     .page-viewer.active { display: block; }
-
     .page-viewer .viewer-title {
-      font-size: 0.8rem;
-      color: #6366f1;
-      font-weight: 600;
-      margin-bottom: 0.5rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+      font-size: 0.8rem; color: #6366f1; font-weight: 600;
+      margin-bottom: 0.5rem; display: flex;
+      align-items: center; justify-content: space-between;
     }
-
     .page-viewer .close-btn {
-      background: none;
-      border: none;
-      color: #666;
-      cursor: pointer;
-      font-size: 1rem;
+      background: none; border: none; color: #666; cursor: pointer; font-size: 1rem;
     }
     .page-viewer .close-btn:hover { color: #fff; }
-
     .page-viewer .viewer-content {
-      font-size: 0.8rem;
-      line-height: 1.6;
-      color: #bbb;
-      white-space: pre-wrap;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 0.8rem; line-height: 1.6; color: #bbb; white-space: pre-wrap; font-family: inherit;
     }
-
     .page-viewer .viewer-content h1,
     .page-viewer .viewer-content h2,
-    .page-viewer .viewer-content h3 {
-      color: #fff;
-      margin: 0.8rem 0 0.3rem;
-    }
+    .page-viewer .viewer-content h3 { color: #fff; margin: 0.8rem 0 0.3rem; }
 
-    .empty-state {
-      padding: 2rem;
-      text-align: center;
-      color: #555;
-      font-size: 0.85rem;
-    }
-
+    .empty-state { padding: 2rem; text-align: center; color: #555; font-size: 0.85rem; }
     .empty-state .icon { font-size: 2rem; margin-bottom: 0.5rem; }
 
-    /* Upload zone */
-    .upload-zone {
-      border-top: 1px solid #1e1e3a;
-      padding: 0.8rem 1.2rem;
-    }
+    .upload-zone { border-top: 1px solid #1e1e3a; padding: 0.8rem 1.2rem; }
     .upload-label {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.6rem 0.8rem;
-      border: 1px dashed #2a2a4a;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 0.8rem;
-      color: #888;
-      transition: all 0.15s;
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.6rem 0.8rem; border: 1px dashed #2a2a4a;
+      border-radius: 8px; cursor: pointer;
+      font-size: 0.8rem; color: #888; transition: all 0.15s;
     }
     .upload-label:hover { border-color: #6366f1; color: #aaa; }
     .upload-label.drag-over { border-color: #6366f1; background: rgba(99,102,241,0.1); color: #fff; }
     #uploadInput { display: none; }
     #uploadStatus { font-size: 0.75rem; margin-top: 0.4rem; color: #888; min-height: 1em; }
 
-    /* New page notification */
-    .page-item.new-page {
-      animation: highlightNew 2s ease-out;
+    .action-btn {
+      display: inline-block; margin-top: 0.5rem;
+      background: #6366f1; color: #fff; border: none;
+      border-radius: 8px; padding: 0.4rem 0.9rem;
+      font-size: 0.82rem; font-weight: 600; cursor: pointer;
+      transition: background 0.2s;
     }
+    .action-btn:hover { background: #818cf8; }
+    .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .page-item.new-page { animation: highlightNew 2s ease-out; }
     @keyframes highlightNew {
-      0% { background: rgba(99, 102, 241, 0.3); }
+      0% { background: rgba(99,102,241,0.3); }
       100% { background: transparent; }
     }
 
-    /* Responsive */
     @media (max-width: 768px) {
       .app { flex-direction: column; }
-      .voice-panel { border-right: none; border-bottom: 1px solid #1e1e3a; }
-      .brain-panel { width: 100%; max-height: 50vh; }
+      .chat-panel { border-right: none; border-bottom: 1px solid #1e1e3a; }
+      .brain-panel { width: 100%; max-height: 45vh; }
     }
   </style>
 </head>
 <body>
-  <div class="app">
-    <!-- Left: Voice -->
-    <div class="voice-panel">
+<div class="app">
+
+  <!-- Left: Chat -->
+  <div class="chat-panel">
+    <div class="chat-header">
       <h1>Second Brain</h1>
-      <p class="subtitle">Your AI interviewer — tell it about your life</p>
-
-      <div id="pulseRing" class="pulse-ring">
-        <div class="icon">🎙️</div>
-      </div>
-
-      <p id="status"></p>
-
-      <button id="connectBtn" class="btn" onclick="handleConnect()">
-        Start Conversation
-      </button>
-
-      <div id="controls" class="controls">
-        <button id="muteBtn" class="btn" onclick="handleToggleMic()">Mute</button>
-        <button id="endBtn" class="btn" onclick="handleDisconnect()">End</button>
-      </div>
-
-      <p id="error" class="error"></p>
-      <div id="transcript"></div>
+      <p>Your personal AI — tell it about your life</p>
     </div>
 
-    <!-- Right: Brain -->
-    <div class="brain-panel">
-      <div class="brain-header">
-        <h2>Brain</h2>
-        <span id="pageCount" class="count">0</span>
-        <button class="refresh-btn" onclick="loadWikiPages()">Refresh</button>
-      </div>
+    <div class="messages" id="messages">
+      <div class="message assistant">Hey! I'm your Second Brain. Tell me something about yourself, or ask me anything you've shared before.</div>
+    </div>
 
-      <div class="upload-zone">
-        <label class="upload-label" id="uploadLabel" for="uploadInput">
-          <span>📎</span> Upload file to brain (txt, md, pdf, docx…)
-        </label>
-        <input type="file" id="uploadInput" accept=".txt,.md,.pdf,.docx,.csv,.rst">
-        <div id="uploadStatus"></div>
-      </div>
-
-      <div id="pageList" class="page-list">
-        <div class="empty-state">
-          <div class="icon">🧠</div>
-          <div>No pages yet.<br>Start a conversation to build your brain.</div>
-        </div>
-      </div>
-
-      <div id="pageViewer" class="page-viewer">
-        <div class="viewer-title">
-          <span id="viewerTitle"></span>
-          <button class="close-btn" onclick="closeViewer()">x</button>
-        </div>
-        <div id="viewerContent" class="viewer-content"></div>
-      </div>
+    <div class="input-area">
+      <textarea id="msgInput" placeholder="Type a message…" rows="1"></textarea>
+      <button id="sendBtn" onclick="sendMessage()">Send</button>
     </div>
   </div>
 
-  <script>
-    const { Room, RoomEvent, Track, ConnectionState } = LivekitClient;
+  <!-- Right: Brain -->
+  <div class="brain-panel">
+    <div class="brain-header">
+      <h2>Brain</h2>
+      <span id="pageCount" class="count">0</span>
+      <button class="refresh-btn" onclick="loadWikiPages()">Refresh</button>
+    </div>
 
-    let room = null;
-    let micEnabled = true;
-    let knownPages = new Set();
-    let wikiPollInterval = null;
+    <div class="upload-zone">
+      <label class="upload-label" id="uploadLabel" for="uploadInput">
+        <span>📎</span> Upload file to brain (txt, md, pdf, docx…)
+      </label>
+      <input type="file" id="uploadInput" accept=".txt,.md,.pdf,.docx,.csv,.rst">
+      <div id="uploadStatus"></div>
+    </div>
 
-    const statusEl = document.getElementById('status');
-    const connectBtn = document.getElementById('connectBtn');
-    const controls = document.getElementById('controls');
-    const muteBtn = document.getElementById('muteBtn');
-    const pulseRing = document.getElementById('pulseRing');
-    const errorEl = document.getElementById('error');
-    const transcriptEl = document.getElementById('transcript');
-    const pageListEl = document.getElementById('pageList');
-    const pageCountEl = document.getElementById('pageCount');
-    const pageViewerEl = document.getElementById('pageViewer');
-    const viewerTitleEl = document.getElementById('viewerTitle');
-    const viewerContentEl = document.getElementById('viewerContent');
+    <div id="pageList" class="page-list">
+      <div class="empty-state">
+        <div class="icon">🧠</div>
+        <div>No pages yet.<br>Start chatting to build your brain.</div>
+      </div>
+    </div>
 
-    function setStatus(msg) { statusEl.textContent = msg; }
-    function setError(msg) { errorEl.textContent = msg; }
-    function clearError() { errorEl.textContent = ''; }
+    <div id="pageViewer" class="page-viewer">
+      <div class="viewer-title">
+        <span id="viewerTitle"></span>
+        <button class="close-btn" onclick="closeViewer()">✕</button>
+      </div>
+      <div id="viewerContent" class="viewer-content"></div>
+    </div>
+  </div>
+</div>
 
-    function escapeHtml(s) {
-      const d = document.createElement('div');
-      d.textContent = s;
-      return d.innerHTML;
+<script>
+  let history = [];
+  let knownPages = new Set();
+
+  const messagesEl = document.getElementById('messages');
+  const msgInput = document.getElementById('msgInput');
+  const sendBtn = document.getElementById('sendBtn');
+
+  msgInput.addEventListener('input', () => {
+    msgInput.style.height = 'auto';
+    msgInput.style.height = Math.min(msgInput.scrollHeight, 150) + 'px';
+  });
+
+  msgInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
     }
+  });
 
-    // --- Simple markdown rendering ---
-    function renderMarkdown(text) {
-      return text
-        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-        .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-        .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.+?)\*/g, '<em>$1</em>')
-        .replace(/\[\[(.+?)\]\]/g, '<a href="#" onclick="openPage(\'$1\'); return false;" style="color:#818cf8;">$1</a>')
-        .replace(/^- (.+)$/gm, '<div style="padding-left:1rem;">• $1</div>')
-        .replace(/\n\n/g, '<br><br>')
-        .replace(/\n/g, '<br>');
-    }
+  function appendMessage(role, text) {
+    const div = document.createElement('div');
+    div.className = `message ${role}`;
+    div.textContent = text;
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
+  }
 
-    // --- Wiki panel ---
-    async function loadWikiPages() {
+  async function sendMessage() {
+    const text = msgInput.value.trim();
+    if (!text) return;
+
+    msgInput.value = '';
+    msgInput.style.height = 'auto';
+    sendBtn.disabled = true;
+
+    appendMessage('user', text);
+    history.push({ role: 'user', content: text });
+
+    const thinking = appendMessage('thinking', 'Thinking…');
+
+    try {
+      const resp = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ history }),
+      });
+
+      thinking.remove();
+
+      let data;
       try {
-        const resp = await fetch('/api/wiki/pages');
-        const data = await resp.json();
-        const pages = data.pages || [];
-
-        pageCountEl.textContent = pages.length;
-
-        if (pages.length === 0) {
-          pageListEl.innerHTML = '<div class="empty-state"><div class="icon">🧠</div><div>No pages yet.<br>Start a conversation to build your brain.</div></div>';
-          return;
-        }
-
-        pageListEl.innerHTML = '';
-        pages.forEach(title => {
-          const parts = title.split('/');
-          const category = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
-          const name = parts[parts.length - 1].replace(/_/g, ' ');
-
-          const item = document.createElement('div');
-          item.className = 'page-item' + (knownPages.has(title) ? '' : ' new-page');
-          item.onclick = () => openPage(title);
-          item.innerHTML = `
-            ${category ? `<div class="page-category">${category}</div>` : ''}
-            <div class="page-title">${name}</div>
-          `;
-          pageListEl.appendChild(item);
-        });
-
-        knownPages = new Set(pages);
-      } catch (e) {
-        console.warn('Failed to load wiki pages:', e);
+        data = await resp.json();
+      } catch {
+        appendMessage('assistant', `Server error (${resp.status}) — check Flask logs.`);
+        sendBtn.disabled = false;
+        msgInput.focus();
+        return;
       }
+
+      if (!resp.ok) {
+        appendMessage('assistant', 'Error: ' + (data.error || resp.status));
+      } else {
+        appendMessage('assistant', data.reply);
+        // Rebuild clean history from server response
+        history = data.history
+          .filter(m => m.role === 'user' || m.role === 'assistant')
+          .map(m => ({
+            role: m.role,
+            content: typeof m.content === 'string'
+              ? m.content
+              : (Array.isArray(m.content)
+                  ? m.content.filter(b => b.type === 'text').map(b => b.text).join('')
+                  : ''),
+          }))
+          .filter(m => m.content);
+        loadWikiPages();
+      }
+    } catch (e) {
+      thinking.remove();
+      appendMessage('assistant', 'Could not reach server — is Flask running on port 5051?');
     }
 
-    async function openPage(title) {
-      try {
-        const resp = await fetch('/api/wiki/page?title=' + encodeURIComponent(title));
-        const data = await resp.json();
+    sendBtn.disabled = false;
+    msgInput.focus();
+  }
 
-        viewerTitleEl.textContent = title;
-        viewerContentEl.innerHTML = renderMarkdown(data.content || 'Page not found.');
-        pageViewerEl.classList.add('active');
+  // --- Wiki panel ---
+  async function loadWikiPages() {
+    try {
+      const resp = await fetch('/api/wiki/pages');
+      const data = await resp.json();
+      const pages = data.pages || [];
 
-        // Highlight active page
-        document.querySelectorAll('.page-item').forEach(el => el.classList.remove('active'));
-        const items = document.querySelectorAll('.page-item');
-        items.forEach(el => {
-          if (el.querySelector('.page-title')?.textContent === title.split('/').pop().replace(/_/g, ' ')) {
-            el.classList.add('active');
-          }
-        });
-      } catch (e) {
-        console.warn('Failed to load page:', e);
+      document.getElementById('pageCount').textContent = pages.length;
+
+      const listEl = document.getElementById('pageList');
+      if (pages.length === 0) {
+        listEl.innerHTML = '<div class="empty-state"><div class="icon">🧠</div><div>No pages yet.<br>Start chatting to build your brain.</div></div>';
+        return;
       }
-    }
 
-    function closeViewer() {
-      pageViewerEl.classList.remove('active');
+      listEl.innerHTML = '';
+      pages.forEach(title => {
+        const parts = title.split('/');
+        const category = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+        const name = parts[parts.length - 1].replace(/_/g, ' ');
+
+        const item = document.createElement('div');
+        item.className = 'page-item' + (knownPages.has(title) ? '' : ' new-page');
+        item.onclick = () => openPage(title);
+        item.innerHTML = `
+          ${category ? `<div class="page-category">${escapeHtml(category)}</div>` : ''}
+          <div class="page-title">${escapeHtml(name)}</div>
+        `;
+        listEl.appendChild(item);
+      });
+
+      knownPages = new Set(pages);
+    } catch (e) {
+      console.warn('Failed to load wiki pages:', e);
+    }
+  }
+
+  async function openPage(title) {
+    try {
+      const resp = await fetch('/api/wiki/page?title=' + encodeURIComponent(title));
+      const data = await resp.json();
+
+      document.getElementById('viewerTitle').textContent = title;
+      document.getElementById('viewerContent').innerHTML = renderMarkdown(data.content || 'Page not found.');
+      document.getElementById('pageViewer').classList.add('active');
+
       document.querySelectorAll('.page-item').forEach(el => el.classList.remove('active'));
-    }
-
-    // --- Transcript ---
-    function addTranscriptEntry(role, text) {
-      const entry = document.createElement('div');
-      entry.className = `entry ${role}`;
-      entry.innerHTML = `<span class="role">${role === 'user' ? 'You' : 'Agent'}:</span> <span class="text">${escapeHtml(text)}</span>`;
-      transcriptEl.appendChild(entry);
-      transcriptEl.scrollTop = transcriptEl.scrollHeight;
-    }
-
-    // --- Connection UI ---
-    function showConnected() {
-      connectBtn.style.display = 'none';
-      controls.classList.add('active');
-      pulseRing.classList.add('active');
-      transcriptEl.classList.add('active');
-      transcriptEl.innerHTML = '';
-      // Poll for wiki updates during conversation
-      wikiPollInterval = setInterval(loadWikiPages, 5000);
-    }
-
-    function showDisconnected() {
-      connectBtn.style.display = 'inline-block';
-      connectBtn.disabled = false;
-      connectBtn.textContent = 'Start Conversation';
-      controls.classList.remove('active');
-      pulseRing.classList.remove('active');
-      setStatus('');
-      if (wikiPollInterval) {
-        clearInterval(wikiPollInterval);
-        wikiPollInterval = null;
-      }
-      // Final refresh to catch any last writes
-      loadWikiPages();
-    }
-
-    // --- Voice connection ---
-    async function handleConnect() {
-      clearError();
-      connectBtn.disabled = true;
-      connectBtn.textContent = 'Connecting...';
-      setStatus('Requesting token...');
-
-      try {
-        const resp = await fetch('/api/voice-token', { method: 'POST' });
-        if (!resp.ok) {
-          const data = await resp.json().catch(() => ({}));
-          throw new Error(data.error || `HTTP ${resp.status}`);
+      document.querySelectorAll('.page-item').forEach(el => {
+        if (el.querySelector('.page-title')?.textContent === title.split('/').pop().replace(/_/g, ' ')) {
+          el.classList.add('active');
         }
-
-        const { livekit_url, token } = await resp.json();
-        setStatus('Connecting to voice agent...');
-
-        room = new Room();
-
-        room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-          if (track.kind === Track.Kind.Audio) {
-            const audioEl = track.attach();
-            document.body.appendChild(audioEl);
-            setStatus('Agent connected — speak now!');
-          }
-        });
-
-        room.on(RoomEvent.DataReceived, (payload, participant, kind, topic) => {
-          if (topic !== 'client_actions') return;
-          try {
-            const data = JSON.parse(new TextDecoder().decode(payload));
-            if (data.type !== 'client_action') return;
-
-            if (data.action === 'heartbeat') {
-              console.log('Heartbeat from agent:', data.payload.agent_identity);
-              room.localParticipant.publishData(
-                new TextEncoder().encode(JSON.stringify({
-                  type: 'client_action',
-                  action: 'heartbeat_ack',
-                  payload: { timestamp: data.payload.timestamp }
-                })),
-                { reliable: true, topic: 'client_actions' }
-              );
-              return;
-            }
-
-            if (data.action === 'send_transcript') {
-              const { role, text } = data.payload;
-              addTranscriptEntry(role, text);
-              return;
-            }
-
-            console.log('Agent action:', data.action, data.payload);
-          } catch (e) {
-            console.warn('Failed to parse data channel message', e);
-          }
-        });
-
-        room.on(RoomEvent.Disconnected, () => {
-          showDisconnected();
-          setStatus('Call ended');
-        });
-
-        await room.connect(livekit_url, token);
-        await room.localParticipant.setMicrophoneEnabled(true);
-        micEnabled = true;
-
-        showConnected();
-        setStatus('Connected — waiting for agent...');
-
-      } catch (err) {
-        console.error('Connection failed:', err);
-        setError(err.message);
-        showDisconnected();
-      }
+      });
+    } catch (e) {
+      console.warn('Failed to load page:', e);
     }
+  }
 
-    async function handleToggleMic() {
-      if (!room) return;
-      micEnabled = !micEnabled;
-      await room.localParticipant.setMicrophoneEnabled(micEnabled);
-      muteBtn.textContent = micEnabled ? 'Mute' : 'Unmute';
-      muteBtn.classList.toggle('muted', !micEnabled);
-    }
+  function closeViewer() {
+    document.getElementById('pageViewer').classList.remove('active');
+    document.querySelectorAll('.page-item').forEach(el => el.classList.remove('active'));
+  }
 
-    async function handleDisconnect() {
-      if (room) {
-        await room.disconnect();
-        room = null;
-      }
-      showDisconnected();
-      setStatus('Call ended');
-    }
+  function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
 
-    // --- File upload ---
-    const uploadInput = document.getElementById('uploadInput');
-    const uploadLabel = document.getElementById('uploadLabel');
-    const uploadStatus = document.getElementById('uploadStatus');
+  function renderMarkdown(text) {
+    return text
+      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+      .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/^- (.+)$/gm, '<div style="padding-left:1rem;">• $1</div>')
+      .replace(/\n\n/g, '<br><br>')
+      .replace(/\n/g, '<br>');
+  }
 
-    uploadInput.addEventListener('change', () => {
-      if (uploadInput.files[0]) uploadFile(uploadInput.files[0]);
-    });
+  // --- File upload ---
+  const uploadInput = document.getElementById('uploadInput');
+  const uploadLabel = document.getElementById('uploadLabel');
+  const uploadStatus = document.getElementById('uploadStatus');
 
-    uploadLabel.addEventListener('dragover', e => {
-      e.preventDefault();
-      uploadLabel.classList.add('drag-over');
-    });
-    uploadLabel.addEventListener('dragleave', () => uploadLabel.classList.remove('drag-over'));
-    uploadLabel.addEventListener('drop', e => {
-      e.preventDefault();
-      uploadLabel.classList.remove('drag-over');
-      if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]);
-    });
+  uploadInput.addEventListener('change', () => {
+    if (uploadInput.files[0]) uploadFile(uploadInput.files[0]);
+  });
+  uploadLabel.addEventListener('dragover', e => { e.preventDefault(); uploadLabel.classList.add('drag-over'); });
+  uploadLabel.addEventListener('dragleave', () => uploadLabel.classList.remove('drag-over'));
+  uploadLabel.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadLabel.classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]);
+  });
 
-    async function uploadFile(file) {
-      uploadStatus.style.color = '#888';
-      uploadStatus.textContent = `Uploading ${file.name}…`;
-
-      const form = new FormData();
-      form.append('file', file);
-
-      try {
-        const resp = await fetch('/api/upload', { method: 'POST', body: form });
-        const data = await resp.json();
-        if (!resp.ok) {
-          uploadStatus.style.color = '#ef4444';
-          uploadStatus.textContent = data.error || 'Upload failed';
-        } else {
-          uploadStatus.style.color = '#22c55e';
-          uploadStatus.textContent = `Saved to ${data.title} (${data.chars.toLocaleString()} chars)`;
-          loadWikiPages();
-        }
-      } catch (e) {
+  async function uploadFile(file) {
+    uploadStatus.style.color = '#888';
+    uploadStatus.textContent = `Uploading ${file.name}…`;
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const resp = await fetch('/api/upload', { method: 'POST', body: form });
+      const data = await resp.json();
+      if (!resp.ok) {
         uploadStatus.style.color = '#ef4444';
-        uploadStatus.textContent = 'Upload failed — server error';
+        uploadStatus.textContent = data.error || 'Upload failed';
+      } else {
+        uploadStatus.style.color = '#22c55e';
+        uploadStatus.textContent = `Saved to ${data.title}`;
+        loadWikiPages();
+        promptCrossReference(data.title, file.name);
       }
-      uploadInput.value = '';
+    } catch (e) {
+      uploadStatus.style.color = '#ef4444';
+      uploadStatus.textContent = 'Upload failed';
     }
+    uploadInput.value = '';
+  }
 
-    // Load pages on startup
-    loadWikiPages();
-  </script>
+  function promptCrossReference(title, filename) {
+    const div = document.createElement('div');
+    div.className = 'message assistant';
+    div.innerHTML = `<strong>${filename}</strong> saved to <code style="background:#0f0f23;padding:0.1rem 0.3rem;border-radius:4px;">${title}</code>.<br>Want me to read it and cross-reference it with your existing wiki pages?<br>
+      <button class="action-btn" onclick="triggerCrossReference('${title}', '${filename}', this)">Yes, cross-reference it</button>`;
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  async function triggerCrossReference(title, filename, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Working…';
+    const msg = `I just uploaded "${filename}" — it's saved at wiki page "${title}". Please read it, find related pages in my wiki, and add cross-reference links between this page and any related ones.`;
+    await sendMessageText(msg);
+  }
+
+  async function sendMessageText(text) {
+    appendMessage('user', text);
+    history.push({ role: 'user', content: text });
+    const thinking = appendMessage('thinking', 'Thinking…');
+    sendBtn.disabled = true;
+    try {
+      const resp = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ history }),
+      });
+      thinking.remove();
+      let data;
+      try { data = await resp.json(); } catch {
+        appendMessage('assistant', `Server error (${resp.status})`);
+        sendBtn.disabled = false;
+        return;
+      }
+      if (!resp.ok) {
+        appendMessage('assistant', 'Error: ' + (data.error || resp.status));
+      } else {
+        appendMessage('assistant', data.reply);
+        history = data.history
+          .filter(m => m.role === 'user' || m.role === 'assistant')
+          .map(m => ({ role: m.role, content: typeof m.content === 'string' ? m.content : (Array.isArray(m.content) ? m.content.filter(b => b.type === 'text').map(b => b.text).join('') : '') }))
+          .filter(m => m.content);
+        loadWikiPages();
+      }
+    } catch (e) {
+      thinking.remove();
+      appendMessage('assistant', 'Could not reach server — is Flask running on port 5051?');
+    }
+    sendBtn.disabled = false;
+    msgInput.focus();
+  }
+
+  loadWikiPages();
+</script>
 </body>
 </html>

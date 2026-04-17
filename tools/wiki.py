@@ -31,18 +31,80 @@ def write_wiki_page(title: str, content: str) -> str:
     return f"Wiki page '{title}' saved ({len(content)} chars)."
 
 
+def delete_wiki_page(title: str) -> str:
+    """Delete a wiki page. Returns confirmation or not-found message."""
+    path = _page_path(title)
+    if not path.exists():
+        return f"[Page '{title}' does not exist]"
+    path.unlink()
+    # Remove empty parent dirs (but not WIKI_DIR itself)
+    try:
+        path.parent.rmdir()
+    except OSError:
+        pass
+    return f"Wiki page '{title}' deleted."
+
+
 def list_wiki_pages() -> str:
-    """Return a list of all wiki page titles."""
+    """Return a list of all wiki page titles (skips empty files)."""
     WIKI_DIR.mkdir(parents=True, exist_ok=True)
     pages = []
     for f in sorted(WIKI_DIR.rglob("*.md")):
         rel = f.relative_to(WIKI_DIR)
         title = str(rel).replace("\\", "/").removesuffix(".md")
-        if title not in ("index", "log"):
+        if title not in ("index", "log") and f.stat().st_size > 0:
             pages.append(title)
     if not pages:
         return "The wiki is empty — no pages yet."
     return "Wiki pages:\n" + "\n".join(f"  - {p}" for p in pages)
+
+
+def search_wiki_pages(query: str) -> str:
+    """Full-text search across all wiki pages. Returns matching page titles and snippets."""
+    WIKI_DIR.mkdir(parents=True, exist_ok=True)
+    query_lower = query.lower()
+    results = []
+    for f in sorted(WIKI_DIR.rglob("*.md")):
+        rel = f.relative_to(WIKI_DIR)
+        title = str(rel).replace("\\", "/").removesuffix(".md")
+        if title in ("index", "log"):
+            continue
+        try:
+            text = f.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        if query_lower in text.lower():
+            # Find a short snippet around the first match
+            idx = text.lower().find(query_lower)
+            start = max(0, idx - 60)
+            end = min(len(text), idx + 120)
+            snippet = text[start:end].replace("\n", " ").strip()
+            results.append(f"  - {title}: …{snippet}…")
+    if not results:
+        return f"No pages found matching '{query}'."
+    return f"Pages matching '{query}':\n" + "\n".join(results)
+
+
+def get_wiki_summaries() -> str:
+    """Return each wiki page title with its first non-empty line as a one-line summary."""
+    WIKI_DIR.mkdir(parents=True, exist_ok=True)
+    summaries = []
+    for f in sorted(WIKI_DIR.rglob("*.md")):
+        rel = f.relative_to(WIKI_DIR)
+        title = str(rel).replace("\\", "/").removesuffix(".md")
+        if title in ("index", "log"):
+            continue
+        if f.stat().st_size == 0:
+            continue
+        try:
+            lines = f.read_text(encoding="utf-8").splitlines()
+            first = next((l.strip().lstrip("#").strip() for l in lines if l.strip() and not l.startswith("#")), "")
+            summaries.append(f"  - {title}: {first[:100]}" if first else f"  - {title}")
+        except Exception:
+            summaries.append(f"  - {title}")
+    if not summaries:
+        return "The wiki is empty."
+    return "Wiki summaries:\n" + "\n".join(summaries)
 
 
 def log_activity(message: str) -> str:

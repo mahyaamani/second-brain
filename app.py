@@ -1,26 +1,137 @@
-"""VocalBridge voice agent prototype — Flask backend."""
+"""Second Brain — chat-only Flask backend (no voice)."""
 
 import os
-import requests
+import anthropic
 from flask import Flask, jsonify, request, send_from_directory
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-from tools.wiki import read_wiki_page, write_wiki_page, list_wiki_pages, log_activity
+from tools.wiki import read_wiki_page, write_wiki_page, delete_wiki_page, list_wiki_pages, log_activity, search_wiki_pages, get_wiki_summaries
 from tools.web import fetch_article, search_web
 from tools.files import extract_text
-from config import VOCAL_BRIDGE_API_KEY, VOCAL_BRIDGE_URL, VOCAL_BRIDGE_AGENT_ID, TOOL_SECRET
+from config import MODEL_NAME
 
 app = Flask(__name__, static_folder="static")
+client = anthropic.Anthropic()
+
+SYSTEM_PROMPT = """You are Second Brain — a warm, curious AI assistant that helps the user capture and organize their personal knowledge.
+
+## Wiki usage
+
+At the start of EVERY conversation:
+1. Call get_wiki_summaries to load a snapshot of everything you know.
+2. Read any pages directly relevant to what the user just said.
+
+Whenever the user shares something worth remembering:
+1. Write or update the relevant wiki page.
+2. Call search_wiki_pages with 2-3 keywords from the new content to find related pages.
+3. For each related page found, read it and add a cross-reference link — append a "## Related" section listing `[[page/title]]` links if one doesn't exist, or update the existing one.
+4. Also add a `[[page/title]]` back-link to the page you just wrote.
+
+## Page organization
+- Use category/title paths: personal/hobbies, work/projects, goals/2026, ideas, health, etc.
+- Use `[[category/title]]` syntax for cross-reference links inside page content.
+
+## Conversation style
+- Concise and conversational. Ask one follow-up question at a time.
+- Reference what you already know naturally — don't recite it robotically.
+- Use web search when the user asks something outside your knowledge."""
+
+TOOLS = [
+    {
+        "name": "read_wiki_page",
+        "description": "Read a wiki page by title. Returns the page content.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"title": {"type": "string", "description": "Page title, e.g. 'personal/hobbies'"}},
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "write_wiki_page",
+        "description": "Create or update a wiki page.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Page title, e.g. 'work/projects'"},
+                "content": {"type": "string", "description": "Full markdown content for the page"},
+            },
+            "required": ["title", "content"],
+        },
+    },
+    {
+        "name": "delete_wiki_page",
+        "description": "Delete a wiki page by title.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"title": {"type": "string"}},
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "list_wiki_pages",
+        "description": "List all wiki pages. Call this at the start of a conversation.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "search_web",
+        "description": "Search the web for information.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "num_results": {"type": "integer", "default": 3},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "fetch_article",
+        "description": "Fetch and read the content of a web page by URL.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"url": {"type": "string"}},
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "search_wiki_pages",
+        "description": "Full-text search across all wiki pages. Use after writing a page to find related pages for cross-referencing.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "Keywords to search for"}},
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "get_wiki_summaries",
+        "description": "Get all wiki page titles with one-line summaries. Call this at the start of every conversation.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+]
 
 
-def check_tool_auth():
-    """Verify the request carries our tool secret."""
-    token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-    if token != TOOL_SECRET:
-        return jsonify({"error": "unauthorized"}), 401
-    return None
+def run_tool(name, inputs):
+    if name == "read_wiki_page":
+        return read_wiki_page(inputs["title"])
+    if name == "write_wiki_page":
+        log_activity(f"Chat wrote wiki page: {inputs['title']}")
+        return write_wiki_page(inputs["title"], inputs["content"])
+    if name == "delete_wiki_page":
+        log_activity(f"Chat deleted wiki page: {inputs['title']}")
+        return delete_wiki_page(inputs["title"])
+    if name == "list_wiki_pages":
+        return list_wiki_pages()
+    if name == "search_web":
+        return search_web(inputs["query"], num_results=inputs.get("num_results", 3))
+    if name == "fetch_article":
+        return fetch_article(inputs["url"])
+    if name == "search_wiki_pages":
+        return search_wiki_pages(inputs["query"])
+    if name == "get_wiki_summaries":
+        return get_wiki_summaries()
+    return f"Unknown tool: {name}"
 
 
 # --- Static / UI ---
@@ -30,160 +141,71 @@ def index():
     return send_from_directory("static", "index.html")
 
 
-# --- VocalBridge token proxy ---
+# --- Chat endpoint ---
 
-@app.route("/api/voice-token", methods=["POST"])
-def voice_token():
-    if not VOCAL_BRIDGE_API_KEY:
-        return jsonify({"error": "VOCAL_BRIDGE_API_KEY not set"}), 500
-
-    # Inject current wiki index into the agent prompt before each call
+@app.route("/api/chat", methods=["POST"])
+def chat():
     try:
-        _update_prompt_with_wiki_index()
+        body = request.get_json(force=True)
+        history = body.get("history", [])
+
+        messages = list(history)
+
+        # Agentic loop: keep calling until no more tool use
+        while True:
+            resp = client.messages.create(
+                model=MODEL_NAME,
+                max_tokens=1024,
+                system=SYSTEM_PROMPT,
+                tools=TOOLS,
+                messages=messages,
+            )
+
+            messages.append({"role": "assistant", "content": resp.content})
+
+            if resp.stop_reason != "tool_use":
+                break
+
+            tool_results = []
+            for block in resp.content:
+                if block.type == "tool_use":
+                    try:
+                        result = run_tool(block.name, block.input)
+                    except Exception as e:
+                        result = f"Tool error: {e}"
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": str(result),
+                    })
+
+            messages.append({"role": "user", "content": tool_results})
+
+        text = next((b.text for b in resp.content if hasattr(b, "text")), "")
+
+        # Build clean history with plain text only (no SDK objects)
+        clean_history = []
+        for m in messages:
+            if m["role"] == "user" and isinstance(m["content"], str):
+                clean_history.append({"role": "user", "content": m["content"]})
+            elif m["role"] == "assistant":
+                content = m["content"]
+                parts = [b.text for b in content if hasattr(b, "text")] if isinstance(content, list) else [content]
+                joined = " ".join(p for p in parts if p)
+                if joined:
+                    clean_history.append({"role": "assistant", "content": joined})
+
+        return jsonify({"reply": text, "history": clean_history})
+
     except Exception as e:
-        app.logger.warning("Failed to update prompt with wiki index: %s", e)
-
-    try:
-        resp = requests.post(
-            f"{VOCAL_BRIDGE_URL}/api/v1/token",
-            headers={
-                "X-API-Key": VOCAL_BRIDGE_API_KEY,
-                "Content-Type": "application/json",
-                **({"X-Agent-Id": VOCAL_BRIDGE_AGENT_ID} if VOCAL_BRIDGE_AGENT_ID else {}),
-            },
-            json={"participant_name": "User"},
-            timeout=10,
-        )
-        if not resp.ok:
-            app.logger.error("VocalBridge responded %s: %s", resp.status_code, resp.text)
-            return jsonify({"error": f"VocalBridge error: {resp.status_code}", "detail": resp.text}), resp.status_code
-        return jsonify(resp.json())
-    except requests.exceptions.Timeout:
-        return jsonify({"error": "VocalBridge API timed out"}), 504
-    except requests.exceptions.RequestException as e:
-        app.logger.error("Token request failed: %s", e)
-        return jsonify({"error": "Failed to get voice token"}), 502
+        app.logger.exception("Chat error")
+        return jsonify({"error": str(e)}), 500
 
 
-# Base prompt stored here so we can append wiki index dynamically
-BASE_PROMPT = None
-
-
-def _get_base_prompt():
-    """Fetch the base prompt once and cache it."""
-    global BASE_PROMPT
-    if BASE_PROMPT is not None:
-        return BASE_PROMPT
-    try:
-        resp = requests.get(
-            f"{VOCAL_BRIDGE_URL}/api/v1/agent",
-            headers={"X-API-Key": VOCAL_BRIDGE_API_KEY},
-            timeout=10,
-        )
-        if resp.ok:
-            prompt = resp.json().get("custom_prompt", "")
-            # Strip any previous wiki index appendage
-            marker = "\n\n--- CURRENT WIKI INDEX ---"
-            if marker in prompt:
-                prompt = prompt[:prompt.index(marker)]
-            BASE_PROMPT = prompt
-            return BASE_PROMPT
-    except Exception:
-        pass
-    return ""
-
-
-def _update_prompt_with_wiki_index():
-    """Append the current wiki page list to the agent prompt."""
-    base = _get_base_prompt()
-    if not base:
-        return
-
-    pages_raw = list_wiki_pages()
-    if pages_raw.startswith("The wiki is empty"):
-        wiki_section = "The wiki is currently empty. This is a new user — start by getting to know them."
-    else:
-        wiki_section = f"These pages already exist in the user's second brain:\n{pages_raw}\n\nYou already know things about this person. Reference this knowledge naturally. Use read_wiki_page to look up details from specific pages when relevant."
-
-    full_prompt = f"{base}\n\n--- CURRENT WIKI INDEX ---\n{wiki_section}"
-
-    requests.patch(
-        f"{VOCAL_BRIDGE_URL}/api/v1/agent",
-        headers={"X-API-Key": VOCAL_BRIDGE_API_KEY, "Content-Type": "application/json"},
-        json={"prompt": full_prompt},
-        timeout=10,
-    )
-
-
-# --- Second Brain tool endpoints (called by VocalBridge API tools) ---
-
-@app.route("/tools/wiki/read", methods=["POST"])
-def tool_read_wiki():
-    auth_err = check_tool_auth()
-    if auth_err:
-        return auth_err
-    title = request.json.get("title", "")
-    result = read_wiki_page(title)
-    return jsonify({"result": result})
-
-
-@app.route("/tools/wiki/write", methods=["POST"])
-def tool_write_wiki():
-    auth_err = check_tool_auth()
-    if auth_err:
-        return auth_err
-    title = request.json.get("title", "")
-    content = request.json.get("content", "")
-    result = write_wiki_page(title, content)
-    log_activity(f"Voice agent wrote wiki page: {title}")
-    return jsonify({"result": result})
-
-
-@app.route("/tools/wiki/list", methods=["POST"])
-def tool_list_wiki():
-    auth_err = check_tool_auth()
-    if auth_err:
-        return auth_err
-    result = list_wiki_pages()
-    return jsonify({"result": result})
-
-
-@app.route("/tools/web/search", methods=["POST"])
-def tool_search_web():
-    auth_err = check_tool_auth()
-    if auth_err:
-        return auth_err
-    query = request.json.get("query", "")
-    num_results = request.json.get("num_results", 3)
-    result = search_web(query, num_results=num_results)
-    return jsonify({"result": result})
-
-
-@app.route("/tools/web/fetch", methods=["POST"])
-def tool_fetch_article():
-    auth_err = check_tool_auth()
-    if auth_err:
-        return auth_err
-    url = request.json.get("url", "")
-    result = fetch_article(url)
-    return jsonify({"result": result})
-
-
-@app.route("/tools/wiki/log", methods=["POST"])
-def tool_log_activity():
-    auth_err = check_tool_auth()
-    if auth_err:
-        return auth_err
-    message = request.json.get("message", "")
-    result = log_activity(message)
-    return jsonify({"result": result})
-
-
-# --- UI read-only endpoints (no auth needed, read-only) ---
+# --- Wiki read-only endpoints for UI ---
 
 @app.route("/api/wiki/pages")
 def ui_wiki_pages():
-    """List wiki pages for the UI (read-only, no auth)."""
     raw = list_wiki_pages()
     if raw.startswith("The wiki is empty"):
         return jsonify({"pages": []})
@@ -197,7 +219,6 @@ def ui_wiki_pages():
 
 @app.route("/api/wiki/page")
 def ui_wiki_page():
-    """Read a single wiki page for the UI (read-only, no auth)."""
     title = request.args.get("title", "")
     content = read_wiki_page(title)
     return jsonify({"title": title, "content": content})
@@ -208,7 +229,6 @@ ALLOWED_EXTENSIONS = {"txt", "md", "pdf", "docx", "csv", "rst"}
 
 @app.route("/api/upload", methods=["POST"])
 def upload_file():
-    """Upload a file and save its text content to the wiki."""
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
 
@@ -218,10 +238,10 @@ def upload_file():
 
     ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
     if ext not in ALLOWED_EXTENSIONS:
-        return jsonify({"error": f"Unsupported type .{ext}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}), 400
+        return jsonify({"error": f"Unsupported type .{ext}"}), 400
 
     data = f.read()
-    if len(data) > 10 * 1024 * 1024:  # 10 MB cap
+    if len(data) > 10 * 1024 * 1024:
         return jsonify({"error": "File too large (max 10 MB)"}), 413
 
     try:
@@ -230,9 +250,8 @@ def upload_file():
         return jsonify({"error": f"Could not extract text: {e}"}), 422
 
     if not text.strip():
-        return jsonify({"error": "File appears to be empty or has no extractable text"}), 422
+        return jsonify({"error": "File appears empty"}), 422
 
-    # Save to wiki under uploads/<stem>
     stem = f.filename.rsplit(".", 1)[0] if "." in f.filename else f.filename
     title = f"uploads/{stem}"
     write_wiki_page(title, f"# {stem}\n\n{text}")
@@ -242,5 +261,5 @@ def upload_file():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5050))
+    port = int(os.environ.get("PORT", 5051))
     app.run(host="0.0.0.0", port=port, debug=True)
